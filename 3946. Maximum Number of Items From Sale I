@@ -1,0 +1,112 @@
+# Intuition
+The problem heavily distinguishes between the *first* time an item is purchased and any *subsequent* purchases. Buying an item for the first time triggers a "free bonus" of all items whose factors are multiples of the purchased item's factor. Subsequent purchases of the same item yield exactly 1 item and no extra bonuses. 
+
+This maps perfectly to a combination of two standard algorithms:
+1. **0/1 Knapsack:** To maximize the unique "first purchase" bonuses.
+2. **Greedy:** To maximize the raw quantity of items bought with whatever budget is left over (which is simply buying as many copies of the absolute cheapest item as possible).
+
+# Approach
+1. **Factor Frequency & Minimum Price:** First, iterate through the items to find the `min_price` (for the greedy step later) and record the frequency of each factor in a static array.
+2. **Harmonic Precomputation ($O(F \log F)$):** Instead of an $O(N^2)$ loop to see which items divide which, we use the factor frequency array. For each factor `f`, we iterate through its multiples (`f`, `2f`, `3f`, ...) up to the maximum factor. The sum of the frequencies of these multiples represents the exact number of items we get when buying `f` for the first time.
+3. **0/1 Knapsack DP:** We initialize a DP array where `dp[b]` represents the maximum items we can collect by spending exactly `b` budget on "first purchases". For each item, we update the DP array backwards to ensure we only "buy" the first-purchase bonus once per item. We bound the loop by dynamically tracking the maximum reachable budget (`max_b`) to skip useless zero-filled spaces.
+4. **Greedy Fill:** Finally, we evaluate every reachable budget state `b` in the DP array. We take the items gained from the knapsack (`dp[b]`) and greedily spend the remaining `budget - b` on the absolute cheapest item. We return the maximum total items found.
+
+# Complexity
+- Time complexity:
+$$\mathcal{O}(N \cdot B + F \log F)$$
+Where $N$ is the number of items, $B$ is the `budget`, and $F$ is the maximum factor. The precomputation step takes $\mathcal{O}(F \log F)$ using a harmonic series. The Knapsack DP takes $\mathcal{O}(N \cdot B)$. Given $N, B, F \le 1500$, the operations are well under $10^7$, ensuring a 0ms runtime.
+
+- Space complexity:
+$$\mathcal{O}(B + F)$$
+We strictly use fixed-size 1D primitive arrays of size 1505 for the budget states and factor counts. This avoids heap allocations entirely, resulting in $\mathcal{O}(1)$ practical overhead and excellent cache locality.
+
+# Code
+```cpp []
+#pragma GCC optimize("O3,unroll-loops")
+#pragma GCC target("avx2,bmi,bmi2,lzcnt,popcnt")
+
+#include <vector>
+#include <algorithm>
+#include <iostream>
+
+using namespace std;
+
+// Fast I/O to strip standard streaming overhead
+static const auto __io_speed_up = []() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+    return 0;
+}();
+
+class Solution {
+public:
+    int maximumSaleItems(vector<vector<int>>& items, int budget) {
+        int max_factor = 0;
+        int min_price = 2000; // Constraints state budget & price <= 1500
+        
+        int factor_counts[1505] = {0};
+        
+        // 1. Single pass to count factors, and find absolute bounds
+        for (const auto& item : items) {
+            int f = item[0];
+            int p = item[1];
+            factor_counts[f]++;
+            if (f > max_factor) max_factor = f;
+            if (p < min_price) min_price = p;
+        }
+        
+        // 2. O(F log F) Precomputation for the "First Purchase Bonus"
+        // factor_value[f] = exactly how many total items you obtain when you buy factor f
+        int factor_value[1505] = {0};
+        for (int f = 1; f <= max_factor; ++f) {
+            if (factor_counts[f] > 0) {
+                int v = 0;
+                // Sum frequencies of all multiples of f
+                for (int mult = f; mult <= max_factor; mult += f) {
+                    v += factor_counts[mult];
+                }
+                factor_value[f] = v;
+            }
+        }
+        
+        // 3. 0/1 Knapsack using ultra-fast fixed array
+        int dp[1505];
+        for (int i = 1; i <= budget; ++i) {
+            dp[i] = -1;
+        }
+        dp[0] = 0;
+        
+        int max_b = 0; // Tracks dynamically reached DP limits to cut iteration sizes
+        
+        for (const auto& item : items) {
+            int p = item[1];
+            if (p > budget) continue;
+            
+            int v = factor_value[item[0]];
+            int current_max = budget < (max_b + p) ? budget : (max_b + p);
+            
+            for (int b = current_max; b >= p; --b) {
+                if (dp[b - p] != -1) {
+                    int new_val = dp[b - p] + v;
+                    if (new_val > dp[b]) {
+                        dp[b] = new_val;
+                    }
+                }
+            }
+            max_b = current_max;
+        }
+        
+        // 4. Extract combination of DP + Greedily buying cheapest extra items
+        int max_items = 0;
+        for (int b = 0; b <= budget; ++b) {
+            if (dp[b] != -1) {
+                int current_items = dp[b] + (budget - b) / min_price;
+                if (current_items > max_items) {
+                    max_items = current_items;
+                }
+            }
+        }
+        
+        return max_items;
+    }
+};
